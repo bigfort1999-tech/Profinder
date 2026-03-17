@@ -9,7 +9,7 @@
 
 [[redirects]]
   from = "/*"
-  to = "/profinder%202.html"
+  to = "/profinder.html"
   status = 200
 
 [[redirects]]
