@@ -1,0 +1,18 @@
+[build]
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/sb/*"
+  to = "https://xtmwnbbbuufy.supabase.co/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/profinder.html"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
