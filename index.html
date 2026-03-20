@@ -906,7 +906,7 @@ function renderBottomNav() {
   const items = role==='provider' ? [
     {icon:'📊',label:'Dashboard',page:'provider'},
     {icon:'💬',label:'Messages',page:'messages'},
-    {icon:'📋',label:'Briefs',page:'__briefs__'},
+    {icon:'➕',label:'Post',page:'__post__'},
     {icon:'👤',label:'Profile',page:'profile'},
     {icon:'☰',label:'More',page:'__more__'},
   ] : [
@@ -918,7 +918,9 @@ function renderBottomNav() {
   ];
   const navItems = items.map(i => {
     let isActive = false;
-    if(i.page === '__briefs__') {
+    if(i.page === '__post__') {
+      isActive = currentPage === 'provider' && providerView === 'listings';
+    } else if(i.page === '__briefs__') {
       isActive = (role === 'provider' && currentPage === 'provider' && providerView === 'briefs') ||
                  (role === 'seeker' && currentPage === 'seeker' && viewMode === 'posts');
     } else if(i.page === 'seeker') {
@@ -932,7 +934,10 @@ function renderBottomNav() {
     }
     let clickFn;
     if(i.page === '__more__') clickFn = 'openMoreMenu()';
+    else if(i.page === '__post__') clickFn = "openNewListingModal()";
     else if(i.page === '__briefs__') clickFn = state.auth?.role === 'provider' ? "providerView='briefs';navigate('provider')" : "viewMode='posts';navigate('seeker')";
+    else if(i.page === 'seeker') clickFn = "viewMode='browse';navigate('seeker')";
+    else if(i.page === 'provider') clickFn = "providerView='overview';navigate('provider')";
     else clickFn = "navigate('" + i.page + "')";
     const unread = i.page === 'messages' ? (state.conversations||[]).reduce((a,c)=>a+(c.unread||0),0) : 0;
     return '<div class="bottom-nav-item ' + (isActive?'active':'') + '" onclick="' + clickFn + '">' +
@@ -3273,10 +3278,11 @@ function renderProviderSidebar() {
   <aside class="sidebar">
     <div class="sidebar-link ${providerView==='overview'?'active':''}" onclick="providerView='overview';render()"><span class="icon">📊</span>Overview</div>
     <div class="sidebar-link ${providerView==='listings'?'active':''}" onclick="providerView='listings';render()"><span class="icon">📋</span>My Listings</div>
+    <div class="sidebar-link ${providerView==='briefs'?'active':''}" onclick="providerView='briefs';render()"><span class="icon">📢</span>Client Briefs<span class="count">${(state.seekerPosts||[]).filter(p=>p.status==='open').length||''}</span></div>
     <div class="sidebar-link ${providerView==='analytics'?'active':''}" onclick="providerView='analytics';render()"><span class="icon">📈</span>Analytics</div>
     <div class="sidebar-link ${providerView==='calendar'?'active':''}" onclick="providerView='calendar';render()"><span class="icon">📅</span>Availability</div>
     <div class="sidebar-link" onclick="navigate('messages')"><span class="icon">💬</span>Messages<span class="count">${(state.conversations||[]).reduce((a,c)=>a+(c.unread||0),0)}</span></div>
-    <div class="sidebar-link ${providerView==='briefs'?'active':''}" onclick="providerView='briefs';render()"><span class="icon">📢</span>Client Briefs<span class="count">${(state.seekerPosts||[]).filter(p=>p.status==='open').length}</span></div>
+
     <div class="sidebar-link" onclick="jobsTab='browse';navigate('jobs')" style="cursor:pointer"><span class="icon">💼</span>Browse Jobs</div>
     <div class="sidebar-link" onclick="jobsTab='proposals';navigate('jobs')" style="cursor:pointer"><span class="icon">📨</span>My Proposals<span class="count">${(state.proposals||[]).filter(p=>p.status==='pending').length||''}</span></div>
     <div class="sidebar-link" onclick="navigate('jobs');jobsTab='earnings'" style="cursor:pointer"><span class="icon">💰</span>Earnings</div>
@@ -4376,120 +4382,170 @@ function viewPortfolioItem(id) {
 // ============================================================
 // PROFILE
 // ============================================================
-function renderProfile() {
+function renderProfile(viewUserId) {
   if(!state.auth) { navigate('landing'); return ''; }
-  const u = state.auth;
-  const portfolio = state.portfolio || [];
+  const isOwn = !viewUserId || viewUserId === state.auth.id;
+  const u = isOwn ? state.auth : (state.viewingProfile || state.auth);
+  const portfolio = isOwn ? (state.portfolio || []) : (state.viewingPortfolio || []);
   const isProvider = u?.role === 'provider';
+
+  // Social links helper
+  const socialLinks = [
+    { key:'website', icon:'🌐', label:'Website', prefix:'https://' },
+    { key:'linkedin', icon:'💼', label:'LinkedIn', prefix:'https://linkedin.com/in/' },
+    { key:'twitter', icon:'𝕏', label:'Twitter', prefix:'https://twitter.com/' },
+    { key:'instagram', icon:'📸', label:'Instagram', prefix:'https://instagram.com/' },
+    { key:'github', icon:'💻', label:'GitHub', prefix:'https://github.com/' },
+  ];
+
+  const hasSocials = socialLinks.some(s => u[s.key]);
 
   return `
   <div style="padding-top:var(--nav-h)">
-    <div style="max-width:800px;margin:0 auto;padding:24px;padding-bottom:100px">
+    <div style="max-width:860px;margin:0 auto;padding:24px 16px;padding-bottom:100px">
 
-      <!-- Hero -->
-      <div class="profile-hero">
-        <div style="display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap">
-          <div style="position:relative;cursor:pointer" onclick="document.getElementById('avatarUpload').click()" title="Click to change photo">
-            <div class="avatar avatar-xl" style="background:rgba(255,255,255,0.2);color:#fff;border:3px solid rgba(255,255,255,0.3);overflow:hidden">
-              ${u.avatarUrl ? '<img src="'+u.avatarUrl+'" style="width:100%;height:100%;object-fit:cover"/>' : u.avatar}
+      \${!isOwn ? '<button class="btn btn-ghost btn-sm" style="margin-bottom:16px" onclick="history.back()">← Back</button>' : ''}
+
+      <!-- HERO CARD -->
+      <div style="background:linear-gradient(135deg,var(--accent) 0%,var(--purple) 100%);border-radius:var(--radius-xl);padding:28px 24px;margin-bottom:20px;position:relative;overflow:hidden">
+        <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.05) 1px,transparent 1px);background-size:32px 32px;pointer-events:none"></div>
+        <div style="position:relative;display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap">
+
+          <!-- Avatar -->
+          <div style="position:relative;\${isOwn?'cursor:pointer':''}" \${isOwn?"onclick=\"document.getElementById('avatarUpload').click()\"":''}>
+            <div class="avatar avatar-xl" style="background:rgba(255,255,255,0.2);color:#fff;border:3px solid rgba(255,255,255,0.4);overflow:hidden;width:88px;height:88px;font-size:28px">
+              \${u.avatarUrl ? '<img src="'+u.avatarUrl+'" style="width:100%;height:100%;object-fit:cover"/>' : (u.avatar||'?')}
             </div>
-            <div style="position:absolute;bottom:0;right:0;width:22px;height:22px;background:#0057FF;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid #fff">📷</div>
-            <input type="file" id="avatarUpload" accept="image/*" style="display:none" onchange="uploadAvatar(this)"/>
+            \${isOwn ? '<div style="position:absolute;bottom:0;right:0;width:26px;height:26px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.2)">📷</div>' : ''}
+            \${isOwn ? '<input type="file" id="avatarUpload" accept="image/*" style="display:none" onchange="uploadAvatar(this)"/>' : ''}
           </div>
-          <div style="flex:1">
-            <h1 style="color:#fff;font-size:24px">${u.name}</h1>
-            <div style="color:rgba(255,255,255,0.8);margin-top:4px;font-size:14px">${u.role==='provider'?'Service Provider':'Service Seeker'}</div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-              <span class="badge" style="background:rgba(255,255,255,0.2);color:#fff">${entityTypeIcon(u.entityType||'individual')} ${entityTypeLabel(u.entityType||'individual')}</span>
-              <span class="badge" style="background:rgba(255,255,255,0.15);color:#fff;cursor:pointer" onclick="settingsTab='billing';navigate('settings')">${(u.plan||'starter').charAt(0).toUpperCase()+(u.plan||'starter').slice(1)} Plan ${u.plan==='starter'||!u.plan?'↑ Upgrade':''}</span>
-              ${u.isAdmin?'<span class="badge badge-danger">Admin</span>':''}
-              <span class="badge" style="background:rgba(255,255,255,0.15);color:#fff">✓ Verified</span>
+
+          <!-- Info -->
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+              <h1 style="color:#fff;font-size:22px;margin:0">\${u.name}</h1>
+              \${u.verified ? '<span style="background:rgba(255,255,255,0.2);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:100px">✓ Verified</span>' : ''}
+              \${isProvider && u.available !== false ? '<span style="background:rgba(0,255,128,0.2);color:#7EF7B2;font-size:11px;font-weight:700;padding:2px 8px;border-radius:100px">● Available</span>' : ''}
             </div>
+            \${u.title ? '<div style="color:rgba(255,255,255,0.85);font-size:14px;margin-bottom:6px">\${u.title}</div>' : (isOwn ? '<div style="color:rgba(255,255,255,0.5);font-size:13px;margin-bottom:6px;cursor:pointer" onclick="openEditProfileModal()">+ Add your title</div>' : '')}
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <span style="background:rgba(255,255,255,0.15);color:#fff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:100px">\${isProvider ? '💼 Provider' : '🔍 Seeker'}</span>
+              \${u.entityType ? '<span style="background:rgba(255,255,255,0.15);color:#fff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:100px">\${entityTypeIcon(u.entityType)} \${entityTypeLabel(u.entityType)}</span>' : ''}
+              \${u.location ? '<span style="background:rgba(255,255,255,0.15);color:#fff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:100px">📍 \${u.location}</span>' : ''}
+            </div>
+
+            <!-- Social links -->
+            \${hasSocials ? '
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              \${socialLinks.filter(s=>u[s.key]).map(s=>'
+              <a href="\${u[s.key].startsWith('http') ? u[s.key] : s.prefix+u[s.key]}" target="_blank" rel="noopener"
+                style="color:rgba(255,255,255,0.9);font-size:18px;text-decoration:none;transition:transform 0.15s"
+                title="\${s.label}" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">
+                \${s.icon}
+              </a>').join('')}
+            </div>' : (isOwn ? '<div style="color:rgba(255,255,255,0.4);font-size:12px;cursor:pointer" onclick="openEditProfileModal()">+ Add social links</div>' : '')}
           </div>
-          <div style="display:flex;flex-direction:column;gap:6px">
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1.5px solid rgba(255,255,255,0.3)" onclick="openEditProfileModal()">Edit Profile</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.8);border:1.5px solid rgba(255,255,255,0.2)" onclick="logout()">Sign out</button>
-        </div>
+
+          <!-- Action buttons -->
+          <div style="display:flex;flex-direction:column;gap:8px">
+            \${isOwn ? '
+              <button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1.5px solid rgba(255,255,255,0.3)" onclick="openEditProfileModal()">✏ Edit Profile</button>
+              <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);border:1.5px solid rgba(255,255,255,0.15);font-size:12px" onclick="logout()">Sign out</button>
+            ' : '
+              \${isProvider ? '<button class="btn btn-primary btn-sm" onclick="openQuote('\${u.id}')">💬 Contact</button>' : ''}
+              <button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1.5px solid rgba(255,255,255,0.3)" onclick="toggleSave('\${u.id}')">🔖 Save</button>
+            '}
+          </div>
         </div>
       </div>
 
-      <!-- Stats -->
-      <div class="grid-3" style="margin-bottom:20px">
-        <div class="stat-card text-center"><div class="stat-value">24</div><div class="stat-label">Connections</div></div>
-        <div class="stat-card text-center"><div class="stat-value">${(state.savedProviders||[]).length}</div><div class="stat-label">Saved Providers</div></div>
-        <div class="stat-card text-center"><div class="stat-value">${(state.contracts||[]).length}</div><div class="stat-label">Active Contracts</div></div>
-      </div>
-
-      <!-- PLAN UPGRADE CARD (only show if on free plan) -->
-      ${(!u.plan || u.plan === 'starter' || u.plan === 'free') ? renderProfilePlanCard(u) : renderProfileCurrentPlan(u)}
-
-      <!-- PORTFOLIO -->
+      <!-- BIO CARD -->
+      \${u.bio || isOwn ? '
       <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div>
-            <h3>Portfolio</h3>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px">${portfolio.length} item${portfolio.length!==1?'s':''} · showcase your best work</div>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="openAddPortfolioModal()">+ Add Item</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0;font-size:16px">About</h3>
+          \${isOwn ? '<button class="btn btn-ghost btn-sm" onclick="openEditProfileModal()">Edit</button>' : ''}
         </div>
+        \${u.bio ? '<p style="font-size:14px;color:var(--text2);line-height:1.75;margin:0">\${u.bio}</p>' :
+          '<div style="color:var(--text4);font-size:13px;cursor:pointer" onclick="openEditProfileModal()">+ Add a bio to let people know who you are</div>'}
+        \${isProvider && u.rate ? '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:var(--text3)">Rate:</span><span style="font-weight:700;color:var(--accent)">\${u.rate}</span></div>' : ''}
+      </div>' : ''}
 
-        ${portfolio.length === 0 ? `
-        <div style="text-align:center;padding:40px 20px;color:var(--text3)">
-          <div style="font-size:48px;margin-bottom:12px;opacity:0.4">🖼️</div>
-          <div style="font-weight:600;margin-bottom:6px">No portfolio items yet</div>
-          <div style="font-size:13px;margin-bottom:16px">Add case studies, projects, and work samples to build credibility with potential clients.</div>
-          <button class="btn btn-outline btn-sm" onclick="openAddPortfolioModal()">Add your first item</button>
+      <!-- PROVIDER SPECIFIC: PORTFOLIO -->
+      \${isProvider ? '
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div>
+            <h3 style="margin:0;font-size:16px">Portfolio</h3>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">\${portfolio.length} item\${portfolio.length!==1?'s':''}</div>
+          </div>
+          \${isOwn ? '<button class="btn btn-primary btn-sm" onclick="openAddPortfolioModal()">+ Add</button>' : ''}
         </div>
-        ` : `
-        <div class="portfolio-grid" style="margin-top:16px">
-          ${portfolio.map(item => `
-          <div class="portfolio-item" onclick="viewPortfolioItem(${item.id})">
-            <div class="portfolio-item-cover" style="background:${item.bg||'#EEF2FF'}">
-              <span>${item.icon||'📈'}</span>
+        \${portfolio.length === 0 ? '
+        <div style="text-align:center;padding:32px;color:var(--text4)">
+          <div style="font-size:36px;margin-bottom:8px">🖼️</div>
+          \${isOwn ? '<div style="font-size:13px;margin-bottom:12px">Showcase your work to attract more clients</div><button class="btn btn-outline btn-sm" onclick="openAddPortfolioModal()">Add your first item</button>' : '<div style="font-size:13px">No portfolio items yet</div>'}
+        </div>' : '
+        <div class="portfolio-grid">
+          \${portfolio.map(item=>'
+          <div class="portfolio-item" onclick="viewPortfolioItem(\${item.id})">
+            <div class="portfolio-item-cover" style="background:\${item.bg||'#EEF2FF'}">
+              <span>\${item.icon||'📈'}</span>
               <div class="portfolio-item-cover-overlay">
-                <button class="btn btn-sm" style="background:rgba(255,255,255,0.9);color:#111;font-size:12px" onclick="event.stopPropagation();viewPortfolioItem(${item.id})">View</button>
-                <button class="btn btn-sm" style="background:rgba(255,255,255,0.9);color:#111;font-size:12px" onclick="event.stopPropagation();openAddPortfolioModal(${item.id})">Edit</button>
+                <button class="btn btn-sm" style="background:rgba(255,255,255,0.9);color:#111;font-size:12px" onclick="event.stopPropagation();viewPortfolioItem(\${item.id})">View</button>
+                \${isOwn ? '<button class="btn btn-sm" style="background:rgba(255,255,255,0.9);color:#111;font-size:12px" onclick="event.stopPropagation();openAddPortfolioModal(\${item.id})">Edit</button>' : ''}
               </div>
             </div>
             <div class="portfolio-item-body">
-              <div class="portfolio-item-title">${item.title}</div>
-              <div class="portfolio-item-meta">
-                <span style="color:${item.color||'var(--accent)'};font-weight:600">${item.category}</span>
-                · ${item.year}
-                ${item.link ? ' · <span style="color:var(--accent)">🔗 Link</span>' : ''}
-              </div>
-              ${item.desc ? `<div style="font-size:11px;color:var(--text3);margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${item.desc}</div>` : ''}
+              <div class="portfolio-item-title">\${item.title}</div>
+              <div class="portfolio-item-meta"><span style="color:\${item.color||'var(--accent)'};font-weight:600">\${item.category}</span> · \${item.year}</div>
             </div>
-          </div>`).join('')}
+          </div>').join('')}
+          \${isOwn ? '<div class="portfolio-add-card" onclick="openAddPortfolioModal()"><div style="font-size:24px">+</div><div style="font-size:13px;font-weight:600">Add item</div></div>' : ''}
+        </div>'}
+      </div>' : ''}
 
-          <!-- Add new tile -->
-          <div class="portfolio-add-card" onclick="openAddPortfolioModal()">
-            <div style="font-size:28px">+</div>
-            <div style="font-size:13px;font-weight:600">Add item</div>
+      <!-- SEEKER SPECIFIC: ACTIVITY STATS -->
+      \${!isProvider ? '
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 14px;font-size:16px">Activity</h3>
+        <div class="grid-3" style="gap:12px">
+          <div style="text-align:center;padding:14px;background:var(--bg2);border-radius:var(--radius)">
+            <div style="font-size:24px;font-weight:900;font-family:var(--font-display)">\${(state.seekerPosts||[]).length}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Briefs Posted</div>
+          </div>
+          <div style="text-align:center;padding:14px;background:var(--bg2);border-radius:var(--radius)">
+            <div style="font-size:24px;font-weight:900;font-family:var(--font-display)">\${(state.savedProviders||[]).length}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Saved Providers</div>
+          </div>
+          <div style="text-align:center;padding:14px;background:var(--bg2);border-radius:var(--radius)">
+            <div style="font-size:24px;font-weight:900;font-family:var(--font-display)">\${(state.contracts||[]).length}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">Contracts</div>
           </div>
         </div>
-        `}
-      </div>
+      </div>' : ''}
 
-      <!-- Referral -->
+      <!-- PLAN CARD (own profile only) -->
+      \${isOwn ? ((!u.plan || u.plan === 'starter' || u.plan === 'free') ? renderProfilePlanCard(u) : renderProfileCurrentPlan(u)) : ''}
+
+      <!-- REFERRAL (own profile only) -->
+      \${isOwn ? '
       <div class="card">
-        <h3 style="margin-bottom:14px">Referral Program</h3>
-        <div style="background:var(--bg2);border-radius:var(--radius);padding:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <h3 style="margin-bottom:12px;font-size:16px">Referral Program</h3>
+        <div style="background:var(--bg2);border-radius:var(--radius);padding:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div>
-            <div style="font-size:13px;color:var(--text3)">Your referral link</div>
-            <div style="font-size:14px;font-weight:600;font-family:monospace;margin-top:4px">profinder.io/r/${(u.name||'user').toLowerCase().replace(/\s+/g,'-').substring(0,10)}</div>
+            <div style="font-size:12px;color:var(--text3)">Your referral link</div>
+            <div style="font-size:13px;font-weight:600;font-family:monospace;margin-top:3px">profinder-xi.vercel.app/?ref=\${(u.name||'user').toLowerCase().replace(/\s+/g,'-').substring(0,10)}</div>
           </div>
-          <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="copyReferralLink()">Copy link</button>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="copyReferralLink()">Copy</button>
         </div>
-        <div style="margin-top:12px;font-size:13px;color:var(--text3)">Earn $25 for every person who signs up with your link. ${state.referrals.length} referrals so far.</div>
-      </div>
+        <div style="margin-top:10px;font-size:12px;color:var(--text3)">Earn $25 for every referral who signs up.</div>
+      </div>' : ''}
 
     </div>
   </div>`;
 }
-// ============================================================
-// PROFILE PLAN HELPERS
-// ============================================================
+
 function renderProfilePlanCard(u) {
   const role = u.role || 'seeker';
   const plans = role === 'provider' ?
@@ -5737,12 +5793,16 @@ function showOTPVerificationModal(email, name) {
     <div style="font-size:52px;margin-bottom:12px">✉️</div>
     <h3 style="font-size:20px;font-weight:800;margin-bottom:6px">Verify your email</h3>
     <p style="color:var(--text3);font-size:14px;line-height:1.6;margin-bottom:6px">
-      Hi ${firstName}! We sent a 6-digit code to
+      We sent a verification email to
     </p>
-    <div style="font-weight:700;color:var(--accent);font-size:14px;margin-bottom:20px">${email}</div>
+    <div style="font-weight:700;color:var(--accent);font-size:14px;margin-bottom:12px">${email}</div>
+    <div style="background:var(--accent-subtle);border:1px solid var(--accent);border-radius:10px;padding:12px;font-size:13px;color:var(--accent);margin-bottom:16px;text-align:left">
+      <strong>Option 1:</strong> Enter the code from your email below<br>
+      <strong>Option 2:</strong> Tap the confirmation link in the email
+    </div>
 
     <div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px" id="otpBoxes">
-      ${[0,1,2,3,4,5].map(i => `
+      ${[0,1,2,3,4,5,6,7].map(i => `
       <input id="otp${i}" type="number" maxlength="1" inputmode="numeric"
         style="width:44px;height:54px;text-align:center;font-size:24px;font-weight:700;
                border:2px solid var(--border);border-radius:12px;background:var(--bg2);
@@ -5755,7 +5815,7 @@ function showOTPVerificationModal(email, name) {
     </div>
 
     <button class="btn btn-primary w-full" id="otpVerifyBtn" onclick="verifySignupOTP('${email}')" style="margin-bottom:10px">
-      Verify & Create Account →
+      Verify Code →
     </button>
     <button class="btn btn-ghost btn-sm w-full" onclick="resendOTP('${email}')">
       Resend code
@@ -5771,12 +5831,12 @@ function showOTPVerificationModal(email, name) {
 // Modified otpInput to handle both signup and login flows
 function otpInput(el, idx, flow) {
   el.value = el.value.toString().slice(-1).replace(/[^0-9]/g,'');
-  if(el.value && idx < 5) {
+  if(el.value && idx < 7) {
     document.getElementById('otp' + (idx+1))?.focus();
   }
-  if(idx === 5 && el.value) {
-    const code = [0,1,2,3,4,5].map(i => document.getElementById('otp'+i)?.value || '').join('');
-    if(code.length === 6) {
+  if(idx === 7 && el.value) {
+    const code = [0,1,2,3,4,5,6,7].map(i => document.getElementById('otp'+i)?.value || '').join('');
+    if(code.length === 8) {
       setTimeout(() => {
         if(flow === 'signup') verifySignupOTP(localStorage.getItem('pf_otp_email'));
         else verifyOTP(localStorage.getItem('pf_otp_email'));
@@ -5786,8 +5846,8 @@ function otpInput(el, idx, flow) {
 }
 
 async function verifySignupOTP(email) {
-  const code = [0,1,2,3,4,5].map(i => document.getElementById('otp'+i)?.value || '').join('');
-  if(code.length < 6) { showToast('Enter all 6 digits', 'warning'); return; }
+  const code = [0,1,2,3,4,5,6,7].map(i => document.getElementById('otp'+i)?.value || '').join('');
+  if(code.length < 8) { showToast('Enter all 6 digits', 'warning'); return; }
 
   const btn = document.getElementById('otpVerifyBtn');
   if(btn) { btn.disabled = true; btn.textContent = 'Verifying...'; }
@@ -5847,7 +5907,7 @@ async function verifySignupOTP(email) {
     navigate((pending?.role || state.auth?.role) === 'provider' ? 'provider' : 'seeker');
 
   } catch(err) {
-    if(btn) { btn.disabled = false; btn.textContent = 'Verify & Create Account →'; }
+    if(btn) { btn.disabled = false; btn.textContent = 'Verify Code →'; }
     const boxes = document.getElementById('otpBoxes');
     if(boxes) {
       [0,1,2,3,4,5].forEach(i => {
@@ -6571,7 +6631,7 @@ async function sendMagicLink(email, name, role, entityType, isLogin=false) {
 
       <!-- OTP input boxes -->
       <div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px" id="otpBoxes">
-        ${[0,1,2,3,4,5].map(i => `
+        ${[0,1,2,3,4,5,6,7].map(i => `
         <input id="otp${i}" type="number" maxlength="1" inputmode="numeric"
           style="width:44px;height:52px;text-align:center;font-size:22px;font-weight:700;
                  border:2px solid var(--border);border-radius:10px;background:var(--bg2);
@@ -6604,13 +6664,13 @@ function otpInput(el, idx) {
   el.value = el.value.toString().slice(-1).replace(/[^0-9]/g,'');
   el.style.borderColor = el.value ? 'var(--accent)' : 'var(--border)';
   // Auto advance
-  if(el.value && idx < 5) {
+  if(el.value && idx < 7) {
     document.getElementById('otp' + (idx+1))?.focus();
   }
   // Auto submit when all 6 filled
-  if(idx === 5 && el.value) {
-    const code = [0,1,2,3,4,5].map(i => document.getElementById('otp'+i)?.value || '').join('');
-    if(code.length === 6) {
+  if(idx === 7 && el.value) {
+    const code = [0,1,2,3,4,5,6,7].map(i => document.getElementById('otp'+i)?.value || '').join('');
+    if(code.length === 8) {
       setTimeout(() => verifyOTP(localStorage.getItem('pf_otp_email')), 200);
     }
   }
@@ -6641,8 +6701,8 @@ async function resendOTP(email) {
 }
 
 async function verifyOTP(email) {
-  const code = [0,1,2,3,4,5].map(i => document.getElementById('otp'+i)?.value || '').join('');
-  if(code.length < 6) { showToast('Enter all 6 digits', 'warning'); return; }
+  const code = [0,1,2,3,4,5,6,7].map(i => document.getElementById('otp'+i)?.value || '').join('');
+  if(code.length < 8) { showToast('Enter all 6 digits', 'warning'); return; }
 
   const btn = document.getElementById('otpVerifyBtn');
   if(btn) { btn.disabled = true; btn.textContent = 'Verifying...'; }
@@ -6835,12 +6895,14 @@ async function uploadAvatar(input) {
 // ── EDIT PROFILE MODAL ────────────────────────────────────────
 function openEditProfileModal() {
   const u = state.auth;
+  const isProvider = u.role === 'provider';
   openModal(`
     <div class="modal-header">
       <h3 class="modal-title">Edit Profile</h3>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:14px;padding:4px 0">
+
       <div class="input-wrap">
         <label class="label">Full Name</label>
         <input class="input" id="editName" value="${u.name||''}" placeholder="Your full name"/>
@@ -6849,35 +6911,54 @@ function openEditProfileModal() {
         <label class="label">Email</label>
         <input class="input" id="editEmail" value="${u.email||''}" placeholder="you@company.com"/>
       </div>
-      ${u.role === 'provider' ? `
       <div class="input-wrap">
-        <label class="label">Professional Title</label>
-        <input class="input" id="editTitle" value="${u.title||''}" placeholder="e.g. Senior Marketing Consultant"/>
+        <label class="label">${isProvider ? 'Professional Title' : 'Role / Title'}</label>
+        <input class="input" id="editTitle" value="${u.title||''}" placeholder="${isProvider ? 'e.g. Senior Marketing Consultant' : 'e.g. Head of Operations'}"/>
       </div>
       <div class="input-wrap">
         <label class="label">Bio</label>
-        <textarea class="input" id="editBio" rows="3" placeholder="Tell clients about yourself...">${u.bio||''}</textarea>
+        <textarea class="input textarea" id="editBio" rows="3" placeholder="${isProvider ? 'Tell clients about yourself, your experience and what you offer...' : 'Tell providers about yourself and your business...'}" style="min-height:80px">${u.bio||''}</textarea>
       </div>
+
+      ${isProvider ? `
       <div class="input-wrap">
         <label class="label">Rate</label>
         <input class="input" id="editRate" value="${u.rate||''}" placeholder="e.g. $150/hr or $5,000/project"/>
-      </div>
-      ` : ''}
+      </div>` : ''}
+
       <div class="input-wrap">
         <label class="label">Location</label>
         <input class="input" id="editLocation" value="${u.location||''}" placeholder="City, Country"/>
       </div>
+
+      <div style="height:1px;background:var(--border);margin:4px 0"></div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3)">Social & Links</div>
+
       <div class="input-wrap">
-        <label class="label">Website</label>
+        <label class="label">🌐 Website</label>
         <input class="input" id="editWebsite" value="${u.website||''}" placeholder="https://yoursite.com"/>
       </div>
       <div class="input-wrap">
-        <label class="label">LinkedIn</label>
+        <label class="label">💼 LinkedIn</label>
         <input class="input" id="editLinkedin" value="${u.linkedin||''}" placeholder="linkedin.com/in/yourname"/>
       </div>
+      <div class="input-wrap">
+        <label class="label">𝕏 Twitter / X</label>
+        <input class="input" id="editTwitter" value="${u.twitter||''}" placeholder="@yourhandle"/>
+      </div>
+      <div class="input-wrap">
+        <label class="label">📸 Instagram</label>
+        <input class="input" id="editInstagram" value="${u.instagram||''}" placeholder="@yourhandle"/>
+      </div>
+      ${isProvider ? `
+      <div class="input-wrap">
+        <label class="label">💻 GitHub</label>
+        <input class="input" id="editGithub" value="${u.github||''}" placeholder="github.com/yourusername"/>
+      </div>` : ''}
+
       <button class="btn btn-primary w-full" onclick="saveEditProfile()">Save Changes</button>
     </div>
-  `);
+  `, true);
 }
 
 async function saveEditProfile() {
@@ -6889,13 +6970,18 @@ async function saveEditProfile() {
   const location = document.getElementById('editLocation')?.value?.trim();
   const website = document.getElementById('editWebsite')?.value?.trim();
   const linkedin = document.getElementById('editLinkedin')?.value?.trim();
+  const twitter = document.getElementById('editTwitter')?.value?.trim();
+  const instagram = document.getElementById('editInstagram')?.value?.trim();
+  const github = document.getElementById('editGithub')?.value?.trim();
   if(!name || !email) { showToast('Name and email are required', 'warning'); return; }
   try {
-    const updates = { name, email, location, website, linkedin };
-    if(state.auth?.role === 'provider') Object.assign(updates, { title, bio, rate });
-    await dbUpdate('profiles', updates, 'id=eq.' + state.auth.id);
-    if(state.auth?.role === 'provider' && title) {
-      await dbUpdate('providers', { title, bio, rate }, 'id=eq.' + state.auth.id).catch(()=>{});
+    const updates = { name, email, title, bio, location, website, linkedin, twitter, instagram, github };
+    if(state.auth?.role === 'provider') Object.assign(updates, { rate });
+    if(state.auth?.id && !String(state.auth.id).match(/^\d+$/)) {
+      await dbUpdate('profiles', updates, 'id=eq.' + state.auth.id);
+      if(state.auth?.role === 'provider') {
+        await dbUpdate('providers', { title, bio, rate }, 'id=eq.' + state.auth.id).catch(()=>{});
+      }
     }
     Object.assign(state.auth, updates);
     saveState(); render(); closeModal();
